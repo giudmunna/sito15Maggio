@@ -90,7 +90,7 @@ include 'header.php';
 
 <!-- Layout principale: immagine + informazioni + opzioni -->
 <div class="product-container">
-  <?php $imgPath = trim((string)($prodotto['path'] ?? '')); ?>
+  <?php $imgPath = safe_image_src((string)($prodotto['path'] ?? '')); ?>
   <?php if ($imgPath !== ''): ?>
     <div class="product-detail-image-wrap">
       <img class="product-detail-image" src="<?php echo htmlspecialchars($imgPath); ?>" alt="<?php echo htmlspecialchars($prodotto['modello']); ?>" loading="eager" width="800" height="1000" decoding="async" onerror="this.onerror=null;this.src='https://fdn2.gsmarena.com/vv/bigpic/apple-iphone-15.jpg';">
@@ -155,6 +155,7 @@ include 'header.php';
 
     <!-- Form "aggiungi al carrello": POST verso carrello.php con action=add -->
     <form method="post" action="carrello.php">
+      <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(csrf_token(), ENT_QUOTES, 'UTF-8'); ?>">
       <input type="hidden" name="action" value="add">
       <input type="hidden" name="id_prodotto" value="<?php echo (int)$prodotto['id_prodotto']; ?>">
       <input type="hidden" name="redirect" value="carrello.php">

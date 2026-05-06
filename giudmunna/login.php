@@ -78,6 +78,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             if ($ok) {
+                // Previene session fixation dopo autenticazione riuscita.
+                session_regenerate_id(true);
                 // SESSIONE: memorizza utente loggato
                 $_SESSION['id_utente'] = $id_utente;
                 // SESSIONE: nome per UI/header

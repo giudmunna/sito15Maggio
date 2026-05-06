@@ -358,3 +358,18 @@ JOIN gradi_estetici ge ON ge.descrizione = gr.grado_estetico;
     INSERT INTO righe_ordine (id_ordine, id_prodotto, quantita, prezzo_unitario)
       VALUES (?, ?, ?, ?)
 */
+
+-- Carrello persistente per cliente (sostituisce carrello in sessione)
+CREATE TABLE IF NOT EXISTS carrello (
+  id_carrello INT AUTO_INCREMENT PRIMARY KEY,
+  id_cliente INT NOT NULL,
+  id_prodotto INT NOT NULL,
+  quantita INT NOT NULL DEFAULT 1,
+  creato_il TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  aggiornato_il TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_carrello_cliente_prodotto (id_cliente, id_prodotto),
+  KEY idx_carrello_cliente (id_cliente),
+  KEY idx_carrello_prodotto (id_prodotto),
+  CONSTRAINT fk_carrello_cliente FOREIGN KEY (id_cliente) REFERENCES clienti(id_cliente) ON DELETE CASCADE,
+  CONSTRAINT fk_carrello_prodotto FOREIGN KEY (id_prodotto) REFERENCES prodotti(id_prodotto) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

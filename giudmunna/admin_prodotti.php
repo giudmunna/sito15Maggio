@@ -51,35 +51,41 @@ function normalize_price(string $input): ?float
     if ($input === '') {
         return null;
     }
+    // Limite semplice per evitare payload eccessivi/non realistici.
+    if (strlen($input) > 32) {
+        return null;
+    }
     $input = str_replace(['€', ' '], '', $input);
     $input = str_replace(',', '.', $input);
-    if (!preg_match('/^\d+(\.\d{1,2})?$/', $input)) {
+    // Consenti solo formato decimale semplice (max 2 decimali), no notazione scientifica.
+    if (!preg_match('/^(?:0|[1-9]\d*)(?:\.\d{1,2})?$/', $input)) {
         return null;
     }
     $p = (float)$input;
-    if ($p < 0 || $p > 999999.99) {
+    // Prezzo utile di business: > 0 e con tetto massimo.
+    if ($p <= 0 || $p > 999999.99) {
         return null;
     }
-    return $p;
+    // Arrotonda in modo deterministico a 2 decimali.
+    return round($p, 2);
 }
 
-// Estensioni immagine consentite (controllo semplice lato server)
-function is_allowed_image_ext(string $filename): bool
+// MIME immagine consentiti
+function allowed_image_mime_to_ext(): array
 {
-    $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
-    return in_array($ext, ['jpg', 'jpeg', 'png', 'webp', 'gif'], true);
+    return [
+        'image/jpeg' => 'jpg',
+        'image/png' => 'png',
+        'image/webp' => 'webp',
+        'image/gif' => 'gif',
+    ];
 }
 
 // Genera un nome file univoco per l'upload (token casuale)
-function pick_upload_filename(string $originalName): string
+function pick_upload_filename(string $extension): string
 {
-    $ext = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
-    $safeExt = preg_replace('/[^a-z0-9]/', '', $ext);
-    if ($safeExt === '') {
-        $safeExt = 'jpg';
-    }
     $token = bin2hex(random_bytes(6));
-    return 'prod_' . date('Ymd_His') . '_' . $token . '.' . $safeExt;
+    return 'prod_' . date('Ymd_His') . '_' . $token . '.' . $extension;
 }
 
 // Valida URL immagine (http/https)
@@ -93,7 +99,11 @@ function is_valid_image_url(string $url): bool
         return false;
     }
     $scheme = parse_url($url, PHP_URL_SCHEME);
-    return in_array(strtolower((string)$scheme), ['http', 'https'], true);
+    if (!in_array(strtolower((string)$scheme), ['http', 'https'], true)) {
+        return false;
+    }
+    $urlPath = (string)parse_url($url, PHP_URL_PATH);
+    return (bool)preg_match('/\.(jpg|jpeg|png|webp|gif)$/i', $urlPath);
 }
 
 // Carica liste per select (valori ordinati)
@@ -130,6 +140,10 @@ if ($res) {
 
 // POST: inserimento nuovo prodotto/variante
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!csrf_is_valid($_POST['csrf_token'] ?? null)) {
+        $messaggio = 'Richiesta non valida. Ricarica la pagina e riprova.';
+        $tipoMessaggio = 'error';
+    } else {
     $id_modello = (int)($_POST['id_modello'] ?? 0);
     $id_capacita = (int)($_POST['id_capacita'] ?? 0);
     $id_colore = (int)($_POST['id_colore'] ?? 0);
@@ -160,23 +174,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($origName === '' || $tmpName === '' || !is_uploaded_file($tmpName)) {
                     $messaggio = 'Upload non valido.';
                     $tipoMessaggio = 'error';
-                } elseif (!is_allowed_image_ext($origName)) {
-                    $messaggio = 'Formato immagine non supportato. Usa jpg, png, webp o gif.';
-                    $tipoMessaggio = 'error';
                 } else {
-                    $uploadsAbs = __DIR__ . DIRECTORY_SEPARATOR . 'uploads';
-                    if (!ensure_uploads_dir($uploadsAbs)) {
-                        $messaggio = 'Impossibile creare la cartella uploads/. Controlla i permessi.';
+                    $maxBytes = 5 * 1024 * 1024; // 5MB
+                    $size = (int)($_FILES['immagine']['size'] ?? 0);
+                    if ($size <= 0 || $size > $maxBytes) {
+                        $messaggio = 'Immagine non valida: dimensione massima 5MB.';
                         $tipoMessaggio = 'error';
                     } else {
-                        $newName = pick_upload_filename($origName);
-                        $destAbs = $uploadsAbs . DIRECTORY_SEPARATOR . $newName;
-                        if (!move_uploaded_file($tmpName, $destAbs)) {
-                            $messaggio = 'Impossibile salvare l’immagine caricata.';
+                        $mimeToExt = allowed_image_mime_to_ext();
+                        $detectedMime = '';
+                        if (function_exists('finfo_open')) {
+                            $finfo = finfo_open(FILEINFO_MIME_TYPE);
+                            if ($finfo) {
+                                $detectedMime = (string)finfo_file($finfo, $tmpName);
+                                finfo_close($finfo);
+                            }
+                        }
+                        if ($detectedMime === '' || !isset($mimeToExt[$detectedMime])) {
+                            $messaggio = 'Formato immagine non supportato.';
+                            $tipoMessaggio = 'error';
+                        } elseif (@getimagesize($tmpName) === false) {
+                            $messaggio = 'Il file caricato non è una vera immagine.';
                             $tipoMessaggio = 'error';
                         } else {
-                            // Salva path relativo da usare nel frontend
-                            $path = 'uploads/' . $newName;
+                            $uploadsAbs = __DIR__ . DIRECTORY_SEPARATOR . 'uploads';
+                            if (!ensure_uploads_dir($uploadsAbs)) {
+                                $messaggio = 'Impossibile creare la cartella uploads/. Controlla i permessi.';
+                                $tipoMessaggio = 'error';
+                            } else {
+                                $newName = pick_upload_filename($mimeToExt[$detectedMime]);
+                                $destAbs = $uploadsAbs . DIRECTORY_SEPARATOR . $newName;
+                                if (!move_uploaded_file($tmpName, $destAbs)) {
+                                    $messaggio = 'Impossibile salvare l’immagine caricata.';
+                                    $tipoMessaggio = 'error';
+                                } else {
+                                    // Salva path relativo da usare nel frontend
+                                    $path = 'uploads/' . $newName;
+                                }
+                            }
                         }
                     }
                 }
@@ -216,6 +251,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt->close();
         }
     }
+    }
 }
 
 // Messaggio post-redirect (PRG pattern semplice)
@@ -241,6 +277,7 @@ include 'header.php';
   <?php endif; ?>
 
   <form method="post" class="form" enctype="multipart/form-data" style="max-width:720px;">
+    <input type="hidden" name="csrf_token" value="<?php echo h(csrf_token()); ?>">
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
       <label>Modello
         <select name="id_modello" required>
@@ -288,7 +325,7 @@ include 'header.php';
     </div>
 
     <label style="margin-top:10px;">Prezzo (€)
-      <input type="text" name="prezzo" inputmode="decimal" placeholder="es. 499,99" value="<?php echo h((string)($_POST['prezzo'] ?? '')); ?>" required>
+      <input type="number" name="prezzo" inputmode="decimal" min="0.01" max="999999.99" step="0.01" placeholder="es. 499,99" value="<?php echo h((string)($_POST['prezzo'] ?? '')); ?>" required>
     </label>
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px;">

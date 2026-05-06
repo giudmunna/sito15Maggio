@@ -40,25 +40,9 @@ if ($id_cliente <= 0) {
 // Ricostruisce righe carrello e totale leggendo prezzi dal DB
 $righe = [];
 $totale = 0.0;
-// SESSIONE: usa il carrello per creare l'ordine
-foreach ($_SESSION['carrello'] as $riga) {
-    $pid = (int)($riga['id_prodotto'] ?? 0);
-    $qty = max(1, (int)($riga['quantita'] ?? 1));
-    if ($pid <= 0) {
-        continue;
-    }
-    // Query minimizzata: qui bastano id, modello, prezzo
-    $stmt = $conn->prepare("SELECT p.id_prodotto, m.nome AS modello, p.prezzo
-                           FROM prodotti p
-                           JOIN modelli m ON p.id_modello = m.id_modello
-                           WHERE p.id_prodotto = ?");
-    $stmt->bind_param("i", $pid);
-    $stmt->execute();
-    $p = $stmt->get_result()->fetch_assoc();
-    $stmt->close();
-    if (!$p) {
-        continue;
-    }
+foreach (carrello_righe_dettaglio() as $p) {
+    $pid = (int)$p['id_prodotto'];
+    $qty = max(1, (int)$p['quantita']);
     $prezzo = (float)$p['prezzo'];
     $sub = $prezzo * $qty;
     $totale += $sub;
@@ -73,6 +57,10 @@ if (count($righe) === 0) {
 
 // POST: registra ordine e righe ordine
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // Anti-CSRF anche in checkout: evita conferme ordine forzate da terzi.
+    if (!csrf_is_valid($_POST['csrf_token'] ?? null)) {
+        $errore = 'Richiesta non valida. Ricarica la pagina e riprova.';
+    } else {
     $data_ordine = date('Y-m-d H:i:s');
     $stato = 'In lavorazione';
 
@@ -84,6 +72,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt->close();
 
         $ok = true;
+        // Le righe_ordine vengono salvate con prezzo_unitario "fotografato"
+        // al momento dell'acquisto (storico ordini coerente nel tempo).
         // Inserisce una riga_ordine per ogni item in carrello
         $ins = $conn->prepare("INSERT INTO righe_ordine (id_ordine, id_prodotto, quantita, prezzo_unitario) VALUES (?, ?, ?, ?)");
         foreach ($righe as $r) {
@@ -109,6 +99,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else {
         $errore = 'Errore nel salvataggio dell\'ordine.';
         $stmt->close();
+    }
     }
 }
 
@@ -140,6 +131,7 @@ include 'header.php';
 
     <!-- Conferma: invia POST per registrare ordine+righe -->
     <form method="post" style="margin-top:24px;">
+      <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(csrf_token(), ENT_QUOTES, 'UTF-8'); ?>">
       <button type="submit" class="btn btn-primary">Conferma e registra ordine</button>
       <a href="carrello.php" class="btn btn-outline" style="margin-left:12px;">Indietro</a>
     </form>
