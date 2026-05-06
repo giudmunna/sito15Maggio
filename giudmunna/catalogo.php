@@ -66,9 +66,9 @@ ksort($condizioni);
       <label for="filter-storage">Spazio di archiviazione</label>
       <select id="filter-storage" data-catalog-filter="storage">
         <option value="">Tutti</option>
-        <option value="0-128">Fino a 128 GB</option>
-        <option value="129-256">Da 129 a 256 GB</option>
-        <option value="257-2048">Oltre 256 GB</option>
+        <option value="0-128">128GB</option>
+        <option value="129-256">256GB</option>
+        <option value="257-2048">512GB+</option>
       </select>
 
       <label for="filter-battery">Batteria</label>
